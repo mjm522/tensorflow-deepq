@@ -68,7 +68,7 @@ class DiscreteDeepQ(object):
         dicount_rate: float (0 to 1)
             how much we care about future rewards.
         max_experience: int
-            maximum size of the reply buffer
+            maximum size of the replay buffer
         target_network_update_rate: float
             how much to update target network after each
             iteration. Let's call target_network_update_rate
@@ -112,6 +112,8 @@ class DiscreteDeepQ(object):
         self.s.run(self.target_network_update)
 
         self.saver = tf.train.Saver()
+
+        self.cost_list = []
 
     def linear_annealing(self, n, total, p_initial, p_final):
         """Linear annealing between p_initial and p_final
@@ -216,6 +218,8 @@ class DiscreteDeepQ(object):
         and backpropage the value function.
         """
         if self.number_of_times_train_called % self.train_every_nth == 0:
+
+            # print "len(self.experience) \t", len(self.experience)
             if len(self.experience) <  self.minibatch_size:
                 return
 
@@ -259,6 +263,10 @@ class DiscreteDeepQ(object):
                 self.rewards:                rewards,
             })
 
+            # print "cost \t", cost
+
+            self.cost_list.append(cost)
+
             self.s.run(self.target_network_update)
 
             if calculate_summaries:
@@ -267,6 +275,8 @@ class DiscreteDeepQ(object):
             self.iteration += 1
 
         self.number_of_times_train_called += 1
+
+        return self.cost_list
 
     def save(self, save_dir, debug=False):
         STATE_FILE      = os.path.join(save_dir, 'deepq_state')

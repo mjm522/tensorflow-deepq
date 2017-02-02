@@ -9,6 +9,8 @@ from os.path import join, exists
 from os import makedirs
 from IPython.display import clear_output, display, HTML
 
+plt.ion()
+
 def simulate(simulation,
              controller= None,
              fps=60,
@@ -81,8 +83,9 @@ def simulate(simulation,
             simulation.step(chunk_length_s)
 
         if frame_no % action_every == 0:
-            new_observation = simulation.observe()
             reward          = simulation.collect_reward()
+            new_observation = simulation.observe()
+            
             # store last transition
             if last_observation is not None:
                 controller.store(last_observation, last_action, reward, new_observation)
@@ -91,9 +94,14 @@ def simulate(simulation,
             new_action = controller.action(new_observation)
             simulation.perform_action(new_action)
 
+            # print "frame no \t", frame_no
+
             #train
             if not disable_training:
-                controller.training_step()
+                cost_list = controller.training_step()
+                plt.plot(cost_list)
+                plt.pause(0.0001)
+                plt.show()
 
             # update current state as last state.
             last_action = new_action
@@ -112,6 +120,8 @@ def simulate(simulation,
                 clear_output(wait=True)
                 svg_html = simulation.to_html(stats)
                 display(svg_html)
+            elif hasattr(simulation, 'plot_reward'):
+                simulation.plot_reward()
 
             if save_path is not None:
                 img_path = join(save_path, "%d.svg" % (last_image,))

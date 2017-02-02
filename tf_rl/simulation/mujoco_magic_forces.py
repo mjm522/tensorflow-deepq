@@ -6,38 +6,41 @@ import numpy as np
 from math import *
 import random
 import copy
-
+import matplotlib.pyplot as plt
 from os.path import dirname, abspath
+from config import MUJOCO_ENV
 
+# plt.ion()
 
 class MujocoEnv():   
-    def __init__(self):
-        self.xml_path = dirname(dirname(abspath(__file__))) + '/simulation/models/table_setup.xml' 
+    def __init__(self, actions, config=MUJOCO_ENV):
+        self.config = config
+        self.xml_path = config['model_name']
         self.model = mjcore.MjModel(self.xml_path)
         self.dt = self.model.opt.timestep;
         #self.action_space = spaces.Box(self.lower, self.upper)
         self.metadata = {'render.modes': ['human', 'rgb_array'],
             'video.frames_per_second' : int(np.round(1.0 / self.dt))}
+        self.actions = actions
+        self.max_force = 2
 
     def viewerSetup(self):
-        self.width  = 640
-        self.height = 480
-        self.viewer = mjviewer.MjViewer(visible=True,
-                                        init_width=self.width,
-                                        init_height=self.height)
 
-        #self.viewer.cam.trackbodyid = 0 #2
-        self.viewer.cam.distance = self.model.stat.extent * 0.75
-        self.viewer.cam.lookat[0] = 0 #0.8
-        self.viewer.cam.lookat[1] = 0.5 #0.8
-        self.viewer.cam.lookat[2] = 0.1 #0.8
-        self.viewer.cam.elevation = 160
-        self.viewer.cam.azimuth = 100
-        #self.viewer.cam.pose = 
-        self.viewer.cam.camid = -3
+        self.viewer = mjviewer.MjViewer(visible=True,
+                                        init_width=self.config['image_width'],
+                                        init_height=self.config['image_height'])
 
         self.viewer.start()
         self.viewer.set_model(self.model)
+
+        # if 'camera_pos' in self.config:
+        #     cam_pos = self.config['camera_pos']
+        #     for i in range(3):
+        #         self.viewer.cam.lookat[i] = cam_pos[i]
+        #     self.viewer.cam.distance = cam_pos[3]
+        #     self.viewer.cam.elevation = cam_pos[4]
+        #     self.viewer.cam.azimuth = cam_pos[5]
+        #     self.viewer.cam.trackbodyid = -1 
 
         #(data, width, height) = self.viewer.get_image()
 
@@ -51,7 +54,6 @@ class MujocoEnv():
         return self.viewer       
 
     def viewerRender(self):
- 
         self.viewerStart().loop_once()
                                                
     def resetModel(self):
@@ -63,20 +65,25 @@ class MujocoEnv():
         return ob
           
     def getPos(self):
-        return self.model.data.qpos.flat[0:3]
+        return self.model.data.qpos[0:3].flatten()
 
     def getOri(self):
-        return self.model.data.qpos.flat[3:7]
+        return self.model.data.qpos[3:7].flatten()
 
     def getVel(self):
-        return self.model.data.qvel.flat[0:3]
+        return self.model.data.qvel[0:3].flatten()
 
     def getOmg(self):
-        return self.model.data.qvel.flat[3:6]
+        return self.model.data.qvel[3:6].flatten()
         
     def setPos(self, pos):
         q = copy.deepcopy(self.model.data.qpos)
         q[0:3] = pos
+        self.model.data.qpos = q
+
+    def setOri(self, ori):
+        q = copy.deepcopy(self.model.data.qpos)
+        q[3:7] = ori
         self.model.data.qpos = q
 
     def setVel(self, vel):
@@ -93,78 +100,101 @@ class MujocoEnv():
         self.model.data.ctrl = ctrl
 
     def step(self):
-        self.model.step()  
+        # print "external force \t", np.round(self.model.data.qfrc_applied.flatten(),3)
+        self.model.step()
+        self.viewerRender()  
 
     def resetBox(self):
-        self.setPos(np.array([0,0,0]))
-        self.setOri(np.array([1,0,0,0]))
-        self.setVel(np.zeros([0,0,0]))
-        self.setOmg(np.zeros([0,0,0]))
+        self.setPos(np.zeros((3,1)))
+        self.setOri(np.zeros((4,1)))
+        self.resetVel()
         self.model.qfrc_applied = np.zeros((self.model.nv,1))
+
+    def resetVel(self):
+        self.setVel(np.zeros((3,1)))
+        self.setOmg(np.zeros((3,1)))
+        self.model.step1()
 
     def applyFTOnObj(self, action_direction):
 
-        # site_names = self.model.site_names
+        self.resetBox()
 
-        # if not site_names:
+        force = self.max_force*np.hstack([self.actions[action_direction], 0.])
 
-        #     print "No sites found to apply inputs"
-        #     raise ValueError
-
-
-        # point1_index = random.randint(0, len(site_names)-1)
-        # point2_index = random.randint(0, len(site_names)-1)
-
-        # point1 = self.model.site_pose(site_names[point1_index])[0]
-        # point2 = self.model.site_pose(site_names[point2_index])[0]
-        # com    = self.model.data.xipos[1]
-
-        # f_direction1 = (com-point1)/np.linalg.norm(com-point1)
-        # f_direction2 = (com-point2)/np.linalg.norm(com-point2)
-
-        # force1 = 500.*f_direction1# magnitude times direction
-        # force2 = 500.*f_direction2#
-
-        # torque = np.random.randn(3)
-
-        force = 5*np.hstack([action_direction, 0])
-
-        qfrc_target = self.model.applyFT(point=np.array([0, 0, 0]), 
-                                   force=force, 
-                                   torque=np.zeros(3), body_name='Box')
+        qfrc_target = self.model.applyFT(point=np.array([0., 0., 0.]), #-0.15 is the bottom of the box
+                                         force=force, 
+                                         torque=np.zeros(3), body_name='Box')
         
-        self.model.data.qfrc_applied = qfrc_target
+        self.model.data.qfrc_applied = qfrc_target#np.hstack([force1+force2, torque])[:,None]
+
+        # print "force \t", force
+
+        # print "qfrc_target \t", np.round(qfrc_target.flatten(),3)
+
+        # print "qfrc applied \t", np.round(self.model.data.qfrc_applied.flatten(),3)
 
 
 class PushBox(MujocoEnv):
 
     def __init__(self):
-        self.box = MujocoEnv()
+        self.collected_rewards = []
+        self.directions   = [[1.,0.], [0.,1.], [-1.,0.],[0.,-1.], [-1.,-1.], [1.,1.], [1.,-1.], [-1.,1.], [0., 0.]]
+        self.num_actions  = len(self.directions)
+        self.box = MujocoEnv(actions=self.directions)
         self.box.viewerSetup()
         self.box.viewerStart()
-        self.collected_rewards = []
-        self.directions = [[1,0], [0,1], [-1,0],[0,-1], [0., 0.]]
-        self.num_actions      = len(self.directions)
-        self.goal = np.array([1,0,0])
-        self.final_reward = 100
-        self.thresh = 0.01
+        self.goal = np.array([1.35,1.35,0])
+        self.final_reward = 1
+        self.thresh = 0.3
         #size of observation, 3 position and 3 velocity
         self.observation_size = 3 + 3 
 
+    def check_within_limits(self, pos):
+
+        xlim = (pos[0] > 1.49) or (pos[0] < -1.49)
+        ylim = (pos[1] > 1.49) or (pos[1] < -1.49)
+        
+        # print "pos \t", np.round(pos,3)
+
+        zlim = (pos[2] > 0.05) 
+
+        if zlim or xlim or ylim:
+            return False
+        else:
+            return True
+
+
     def observe(self):
 
-        observation = np.hstack([self.box.getPos(), self.box.getVel()])
+        # print "SOMEBODY CALLED ME observe"
+
+        q = self.box.getPos()
+
+        observation = np.hstack([q, self.box.getVel()])
+
+        if not self.check_within_limits(q):
+            # print "called reset"
+            self.box.resetBox()
 
         return observation
 
     def check_reached_goal(self, pos):
 
+        # print "From check_reached_goal \t", pos
+
+        # print "From  goal \t", self.goal
+
+        # print "Difference \t", self.goal-pos
+
         displacement = abs(self.goal - pos)
 
+        # print "DISPLACEMENT \t", displacement
+        # raw_input("Enter")
+
         if (displacement[0] < self.thresh) and\
-           (displacement[1] < self.thresh) and\
-           (displacement[2] < self.thresh):
+           (displacement[1] < self.thresh):
             
+            print "YAAAAAYYYYYYYYYYYYYY"
             return self.final_reward
 
         else:
@@ -174,9 +204,18 @@ class PushBox(MujocoEnv):
 
     def collect_reward(self):
 
+        # print "SOMEBODY CALLED ME collect_reward"
+
         curr_pos = self.box.getPos()
 
-        total_reward = -np.linalg.norm(curr_pos-self.goal) + self.check_reached_goal(curr_pos)
+        # print "From  collect_reward, curr pos \t", curr_pos
+
+        if not self.collected_rewards:
+            present_total_reward = 0    
+        else:
+            present_total_reward = 0
+            
+        total_reward = self.check_reached_goal(curr_pos) + present_total_reward
 
         self.collected_rewards.append(total_reward)
         
@@ -194,10 +233,39 @@ class PushBox(MujocoEnv):
         for _ in range(num_steps):
             self.box.step()
 
-    def to_html(self, info=[]):
-        pass
+    def plot_reward(self, smoothing = 30):
+        """Plot evolution of reward over time."""
+        plottable = self.collected_rewards[:]
+        while len(plottable) > 1000:
+            for i in range(0, len(plottable) - 1, 2):
+                plottable[i//2] = (plottable[i] + plottable[i+1]) / 2
+            plottable = plottable[:(len(plottable) // 2)]
+        x = []
+        for  i in range(smoothing, len(plottable)):
+            chunk = plottable[i-smoothing:i]
+            x.append(sum(chunk) / len(chunk))
 
+        # plt.plot(list(range(len(x))), x)
+        # plt.pause(0.0001)
+        # plt.show()
 
+    # def to_html(self, info=[]):
+        
+    #     stats = stats[:]
+    #     recent_reward = self.collected_rewards[-100:] + [0]
+    #     objects_eaten_str = ', '.join(["%s: %s" % (o,c) for o,c in self.objects_eaten.items()])
+    #     stats.extend(["reward       = %.1f" % (sum(recent_reward)/len(recent_reward),),
+    #     ])
+
+    #     scene = svg.Scene((self.size[0] + 20, self.size[1] + 20 + 20 * len(stats)))
+    #     scene.add(svg.Rectangle((10, 10), self.size))
+
+    #     offset = self.size[1] + 15
+    #     for txt in stats:
+    #         scene.add(svg.Text((10, offset + 20), txt, 15))
+    #         offset += 20
+
+    #     return scene
 
 if __name__ == "__main__":
     
@@ -205,7 +273,8 @@ if __name__ == "__main__":
 
     while True:
         myBox.box.viewerRender()
-        myBox.step(0.1)
+        myBox.perform_action(1)
+        myBox.step(1)
         # myBox.resetBox()
         # myBox.applyFTOnObj()
         # for j in range(100):

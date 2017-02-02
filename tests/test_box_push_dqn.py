@@ -4,6 +4,8 @@ import sys
 
 sys.path.insert(1, dirname(dirname(abspath(__file__))) )
 
+data_folder_path = dirname(dirname(abspath(__file__))) + '/data/'
+
 import numpy as np
 import tempfile
 import tensorflow as tf
@@ -50,11 +52,12 @@ journalist.add_graph(session.graph)
 
 
 FPS          = 30
-ACTION_EVERY = 3
+ACTION_EVERY = 10
     
 fast_mode = True
+
 if fast_mode:
-    WAIT, VISUALIZE_EVERY = False, 50
+    WAIT, VISUALIZE_EVERY = False, 60
 else:
     WAIT, VISUALIZE_EVERY = True, 1
 
@@ -74,6 +77,7 @@ except KeyboardInterrupt:
     print("Interrupted")
 
 
+print "Finished data collection ..."
 session.run(current_controller.target_network_update)
 
 current_controller.q_network.input_layer.Ws[0].eval()
